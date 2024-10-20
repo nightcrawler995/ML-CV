@@ -1,0 +1,195 @@
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+import tensorflow as tf 
+from tensorflow.keras.preprocessing.text import Tokenizer
+
+from sklearn.metrics import accuracy_score, precision_score, recall_score, confusion_matrix, roc_curve, auc, classification_report
+from sklearn.svm import LinearSVC
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
+from datetime import datetime
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+train = pd.read_csv('drive/My Drive/Colab Notebooks/Yelp_sentiment/train.csv', names= ('class','text'))
+test = pd.read_csv('drive/My Drive/Colab Notebooks/Yelp_sentiment/test.csv', names= ('class','text'))
+
+
+train
+
+train.loc[train["class"] == 1, "class"] = 0
+train.loc[train["class"] == 2, "class"] = 1
+test.loc[test["class"] == 1, "class"] = 0
+test.loc[test["class"] == 2, "class"] = 1
+
+train["word_count"] = train["text"].str.split().str.len()
+train["word_count"].hist()
+
+
+X_train = train['text']
+y_train = train['class']
+X_test = test['text']
+y_test = test['class']
+
+
+max_vocab = 20000
+tokenizer = Tokenizer(num_words=max_vocab)
+tokenizer.fit_on_texts(X_train)
+X_train = tokenizer.texts_to_sequences(X_train)
+X_test = tokenizer.texts_to_sequences(X_test)
+
+X_train = tf.keras.preprocessing.sequence.pad_sequences(X_train, padding='post', maxlen=300)
+X_test = tf.keras.preprocessing.sequence.pad_sequences(X_test, padding='post', maxlen=300)
+
+model_cnn = tf.keras.Sequential([
+    tf.keras.layers.Embedding(max_vocab, 128, input_length=300),
+    tf.keras.layers.Dropout(0.5),
+    tf.keras.layers.Conv1D(64, 5, activation='relu'),
+    tf.keras.layers.MaxPooling1D(pool_size=4),
+    tf.keras.layers.LSTM(128),
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+
+model_cnn.summary()
+
+early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=2, restore_best_weights=True)
+model_cnn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+history_cnn = model_cnn.fit(X_train, y_train, epochs=3, validation_split=0.3, batch_size=100, shuffle=True, callbacks=[early_stop])
+
+history_cnn_dict = history_cnn.history
+
+acc_cnn = history_cnn_dict['accuracy']
+val_acc_cnn = history_cnn_dict['val_accuracy']
+loss_cnn = history_cnn_dict['loss']
+val_loss_cnn = history_cnn_dict['val_loss']
+epochs_cnn = history_cnn.epoch
+
+plt.figure(figsize=(15,10))
+plt.plot(epochs_cnn, loss_cnn, 'r', label='Training loss')
+plt.plot(epochs_cnn, val_loss_cnn, 'b', label='Validation loss')
+plt.title('Training and validation loss', size=20)
+plt.xlabel('Epochs', size=20)
+plt.ylabel('Loss', size=20)
+plt.legend(prop={'size': 20})
+plt.show()
+
+plt.figure(figsize=(15,10))
+plt.plot(epochs_cnn, acc_cnn, 'g', label='Training acc')
+plt.plot(epochs_cnn, val_acc_cnn, 'b', label='Validation acc')
+plt.title('Training and validation accuracy', size=20)
+plt.xlabel('Epochs', size=20)
+plt.ylabel('Accuracy', size=20)
+plt.legend(prop={'size': 20})
+plt.ylim((0.5,1))
+plt.show()
+
+model_cnn.evaluate(X_test, y_test)
+
+pred_cnn = model_cnn.predict(X_test)
+
+predictions_cnn = []
+
+for i in pred_cnn:
+    if i >= 0.5:
+        predictions_cnn.append(1)
+    else:
+        predictions_cnn.append(0)
+
+print('Accuracy on testing set:', accuracy_score(predictions_cnn, y_test))
+print('Precision on testing set:', precision_score(predictions_cnn, y_test))
+print('Recall on testing set:', recall_score(predictions_cnn, y_test))
+
+matrix = confusion_matrix(predictions_cnn, y_test, normalize='all')
+plt.figure(figsize=(8, 5))
+ax= plt.subplot()
+sns.set(font_scale=1)
+sns.heatmap(matrix, annot=True, ax = ax)
+
+ax.set_xlabel('Predicted Labels', size=15)
+ax.set_ylabel('True Labels', size=15)
+ax.set_title('Confusion Matrix', size=20) 
+ax.xaxis.set_ticklabels(["no","yes"], size=15)
+ax.yaxis.set_ticklabels(["no","yes"], size=15)
+
+
+model_rnn = tf.keras.Sequential([
+    tf.keras.layers.Embedding(max_vocab, 32),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64,  return_sequences=True)),
+    tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(16)),
+    tf.keras.layers.Dense(64, activation='relu'),
+    tf.keras.layers.Dropout(0.5),
+    tf.keras.layers.Dense(1)
+])
+
+model_rnn.summary()
+
+#model_rnn.compile(loss=tf.keras.losses.BinaryCrossentropy(from_logits=True), optimizer=tf.keras.optimizers.Adam(1e-4), metrics=['accuracy'])
+
+model_rnn.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+history_rnn = model_rnn.fit(X_train, y_train, epochs = 3, validation_split=0.3, batch_size=200, shuffle=True, callbacks=[early_stop])
+
+history_rnn_dict = history_rnn.history
+
+acc_rnn = history_rnn_dict['accuracy']
+val_acc_rnn = history_rnn_dict['val_accuracy']
+loss_rnn = history_rnn_dict['loss']
+val_loss_rnn = history_rnn_dict['val_loss']
+epochs_rnn = history_rnn.epoch
+
+plt.figure(figsize=(15,10))
+plt.plot(epochs_rnn, loss_rnn, 'r', label='Training loss')
+plt.plot(epochs_rnn, val_loss_rnn, 'b', label='Validation loss')
+plt.title('Training and validation loss', size=20)
+plt.xlabel('Epochs', size=15)
+plt.ylabel('Loss', size=15)
+plt.legend(prop={'size': 15})
+plt.show()
+
+plt.figure(figsize=(15,10))
+plt.plot(epochs_rnn, acc_rnn, 'g', label='Training acc')
+plt.plot(epochs_rnn, val_acc_rnn, 'b', label='Validation acc')
+plt.title('Training and validation accuracy', size=20)
+plt.xlabel('Epochs', size=15)
+plt.ylabel('Accuracy', size=15)
+plt.legend(prop={'size': 15})
+plt.ylim((0.5,1))
+plt.show()
+
+model_rnn.evaluate(X_test, y_test)
+
+pred_rnn = model_rnn.predict(X_test)
+
+predictions_rnn = []
+
+for i in pred_rnn:
+    if i >= 0.5:
+        predictions_rnn.append(1)
+    else:
+        predictions_rnn.append(0)
+
+print('Accuracy on testing set:', accuracy_score(predictions_rnn, y_test))
+print('Precision on testing set:', precision_score(predictions_rnn, y_test))
+print('Recall on testing set:', recall_score(predictions_rnn, y_test))
+
+matrix = confusion_matrix(predictions_rnn, y_test, normalize='all')
+plt.figure(figsize=(8, 5))
+ax= plt.subplot()
+sns.set(font_scale=1)
+sns.heatmap(matrix, annot=True, ax = ax)
+
+ax.set_xlabel('Predicted Labels', size=15)
+ax.set_ylabel('True Labels', size=15)
+ax.set_title('Confusion Matrix', size=20) 
+ax.xaxis.set_ticklabels(["no","yes"], size=15)
+ax.yaxis.set_ticklabels(["no","yes"], size=15)
+
+final_output["Polarity"]
+
+final_output.to_csv('drive/My Drive/Colab Notebooks/Yelp_sentiment/svc_predictions.csv')
